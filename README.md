@@ -7,6 +7,14 @@ Built with SwiftUI and AppKit. Personal beta, shared with friends.
 
 [**Download the DMG**](https://github.com/denjayx/NotchLyrics/releases/tag/v0.1.0-beta.2) · [Report an issue](https://github.com/denjayx/NotchLyrics/issues)
 
+## Preview
+
+<img src="docs/media/notchlyrics-demo.gif" width="800" alt="NotchLyrics demo showing the idle notch, hover playback preview, expanded lyric panel and floating lyric pill">
+
+Hover for track details and playback controls. Click to open lyrics and tools.
+
+[Watch or download the full demo](docs/media/notchlyrics-demo.mp4) · 20 seconds, no audio.
+
 ## Requirements
 
 - macOS 13 or newer.
@@ -34,6 +42,27 @@ Open Spotify and allow NotchLyrics to control it when prompted. No Dock icon app
 - Quit using the power icon in the bottom toolbar, the music-note menu bar item → **Keluar**, or right-click the notch.
 
 Lyrics depend on [LRCLIB](https://lrclib.net). Some tracks have no synced lyrics or use different timing for live/remastered versions. Spotify supplies track metadata and playback position; the app fetches timestamps and selects the active lyric locally.
+
+## Screenshots
+
+<details>
+<summary>View the lyric panel, timing controls and floating lyrics</summary>
+
+**Synced lyrics** — previous, current and next lines, with playback controls and tools in one panel.
+
+<img src="docs/media/lyrics-panel.png" width="700" alt="Expanded NotchLyrics panel with album artwork, track metadata, playback controls, three lyric lines and the integrated toolbar">
+
+**Lyric timing** — adjust in 100 ms steps. Positive values show lyrics earlier; audio playback stays unchanged.
+
+<img src="docs/media/lyric-timing.png" width="700" alt="Audio delay editor expanded below the toolbar, showing the compact timing ruler, minus and plus controls, reset and a positive 800 ms offset">
+
+**Always show lyrics** — a small current-line pill beneath the idle notch. It hides while paused, while the player is open, or when the pointer approaches.
+
+<img src="docs/media/floating-lyrics.png" width="800" alt="Idle notch with album artwork and animated playback bars, and a floating current-lyric pill below it">
+
+</details>
+
+Screenshots and the demo show third-party album artwork and lyrics as part of the app interface. Those materials remain the property of their respective rightsholders and are not covered by this repository’s MIT license.
 
 ## Privacy
 
