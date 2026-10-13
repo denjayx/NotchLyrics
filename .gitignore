@@ -1,0 +1,8 @@
+.DS_Store
+.build-cache/
+*.app/
+dist/
+# Archived raster experiment; native .icon is the release source.
+Assets/AppIcon-source.png
+Assets/AppIcon.icns
+Assets/ICON.md

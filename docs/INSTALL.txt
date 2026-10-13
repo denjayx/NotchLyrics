@@ -1,0 +1,27 @@
+NotchLyrics 0.1.0-beta.1
+
+Requires macOS 13 or newer and the Spotify desktop app.
+Universal binary: Apple Silicon and Intel. Runtime tested on Apple Silicon only.
+
+1. Drag NotchLyrics.app onto Applications.
+2. Eject this disk image and open NotchLyrics from Applications.
+3. This personal beta is ad-hoc signed and NOT notarized by Apple. macOS may block
+   the first launch. If you trust this release, try opening the app once, then
+   use System Settings > Privacy & Security > Open Anyway and confirm.
+   Managed Macs may prohibit this. Do not disable Gatekeeper globally.
+4. Open Spotify desktop and play a track. Allow Automation access to Spotify
+   when macOS asks. You can review it in Privacy & Security > Automation.
+5. Hover the top-center notch to open the player. Settings opens lyric timing
+   and the Always show lyric toggle. Positive timing advances lyrics.
+6. Quit from the music-note menu bar item > Keluar, or right-click the notch.
+
+No Dock icon is expected: NotchLyrics runs as a menu bar app.
+Lyrics are fetched from LRCLIB; availability and timing vary by track/version.
+Title, artist, album and duration are sent to LRCLIB. Artwork loads from the URL
+provided by Spotify. No analytics, accounts or listening history are stored.
+
+Releases: https://github.com/denjayx/NotchLyrics/releases
+Issues: https://github.com/denjayx/NotchLyrics/issues
+
+For older prototype installations: quit the old app before replacing it.
+If Automation fails after replacing it, review its permission in System Settings.
