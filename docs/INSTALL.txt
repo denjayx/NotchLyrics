@@ -1,4 +1,4 @@
-NotchLyrics 0.1.0-beta.1
+NotchLyrics 0.1.0-beta.2
 
 Requires macOS 13 or newer and the Spotify desktop app.
 Universal binary: Apple Silicon and Intel. Runtime tested on Apple Silicon only.
@@ -11,9 +11,11 @@ Universal binary: Apple Silicon and Intel. Runtime tested on Apple Silicon only.
    Managed Macs may prohibit this. Do not disable Gatekeeper globally.
 4. Open Spotify desktop and play a track. Allow Automation access to Spotify
    when macOS asks. You can review it in Privacy & Security > Automation.
-5. Hover the top-center notch to open the player. Settings opens lyric timing
-   and the Always show lyric toggle. Positive timing advances lyrics.
-6. Quit from the music-note menu bar item > Keluar, or right-click the notch.
+5. Hover the top-center notch for artwork, track details and playback controls.
+   Click to open the lyrics and tool section. The timer icon opens lyric timing;
+   the speech-bubble icon toggles Always show lyrics. Positive timing advances lyrics.
+6. Quit using the power icon, the music-note menu bar item > Keluar, or right-click
+   the notch.
 
 No Dock icon is expected: NotchLyrics runs as a menu bar app.
 Lyrics are fetched from LRCLIB; availability and timing vary by track/version.

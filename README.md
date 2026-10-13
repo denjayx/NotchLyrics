@@ -5,7 +5,7 @@
 A small macOS menu bar companion for Spotify, with synced lyrics in the notch.
 Built with SwiftUI and AppKit. Personal beta, shared with friends.
 
-[**Download the DMG**](https://github.com/denjayx/NotchLyrics/releases/tag/v0.1.0-beta.1) · [Report an issue](https://github.com/denjayx/NotchLyrics/issues)
+[**Download the DMG**](https://github.com/denjayx/NotchLyrics/releases/tag/v0.1.0-beta.2) · [Report an issue](https://github.com/denjayx/NotchLyrics/issues)
 
 ## Requirements
 
@@ -16,7 +16,7 @@ Built with SwiftUI and AppKit. Personal beta, shared with friends.
 
 ## Install
 
-Download `NotchLyrics-0.1.0-beta.1-universal.dmg` from **Releases → Assets**, open it, then drag **NotchLyrics.app** to **Applications**. Eject the disk image and launch the installed app.
+Download `NotchLyrics-0.1.0-beta.2-universal.dmg` from **Releases → Assets**, open it, then drag **NotchLyrics.app** to **Applications**. Eject the disk image and launch the installed app.
 
 **This beta is ad-hoc signed and not notarized by Apple.** macOS may block the first launch. If you trust the release, attempt to open it once, then go to **System Settings → Privacy & Security → Open Anyway** and confirm. Managed Macs may disallow this. Do not disable Gatekeeper globally. [Apple’s opening instructions](https://support.apple.com/en-us/102445).
 
@@ -24,11 +24,11 @@ Open Spotify and allow NotchLyrics to control it when prompted. No Dock icon app
 
 ## Use
 
-- Hover the notch/top-center edge to reveal the player and three lyric lines.
+- Hover the notch for a compact artwork, title/artist and playback preview. Click the notch, preview artwork or preview background to open the full lyric panel. Clicking the notch again or clicking outside closes the full panel unless outside dismissal is pinned. Hover alone never opens the lyrics/tools panel.
 - Use previous, play/pause and next without switching to Spotify.
-- Pin keeps the main panel open.
-- A compact bottom toolbar contains Keep panel open, Audio delay, Always show lyrics, Refresh lyrics, and Quit. SF Symbols use green active states and English native hover popovers and subtle hover backgrounds.
-- The timer icon opens the audio-delay slider within the bottom island. Timing is always applied; reset to 0 ms for no offset. Refresh lyrics clears the current track’s cached lyrics before requesting them again.
+- Pin keeps the main panel open when clicking outside. Clicking the notch again still closes it.
+- An integrated bottom tool section contains Keep panel open, Audio delay, Always show lyrics, Refresh lyrics, and Quit. SF Symbols use green active states and English native hover popovers and subtle hover backgrounds.
+- The timer icon opens the audio-delay ruler within the tool section. Drag the ruler left for earlier lyrics or right for later lyrics, in 100 ms steps. A fixed center pointer selects the value; the plus/minus buttons have no tooltip. Timing is always applied; reset to 0 ms for no offset. Refresh lyrics clears the current track’s cached lyrics before requesting them again.
 - Positive timing makes lyrics appear earlier; negative timing makes them appear later. Audio playback itself is unchanged.
 - The floating lyric pill hides while paused, while the main panel is open, or when the pointer approaches it.
 - Quit using the power icon in the bottom toolbar, the music-note menu bar item → **Keluar**, or right-click the notch.

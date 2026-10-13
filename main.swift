@@ -19,23 +19,28 @@ struct LyricsResponse: Decodable { let syncedLyrics: String?; let plainLyrics: S
     @Published var currentLine: Int?
     @Published var message = "Lyrics dari LRCLIB"
     @Published var expanded = false
+    @Published var previewing = false
     @Published var pinned = false
     @Published var cameraWidth: CGFloat = 0
     @Published var barHeight: CGFloat = 24
     @Published var toolsOpen = false
+    @Published var hoveredTool: String?
     @Published var alwaysShowLyric = UserDefaults.standard.bool(forKey: "alwaysShowLyric") {
         didSet { UserDefaults.standard.set(alwaysShowLyric, forKey: "alwaysShowLyric") }
     }
+    var previewWidth: CGFloat { max(380, cameraWidth + 156) }
+    var expandedWidth: CGFloat { max(460, cameraWidth + 180) }
     var activeLyricHeight: CGFloat {
         let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 2
         let bounds = (lyricText(relative: 0) as NSString).boundingRect(
-            with: NSSize(width: max(380, cameraWidth + 100) - 60, height: .greatestFiniteMagnitude),
+            with: NSSize(width: expandedWidth - 60, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: NSFont.systemFont(ofSize: 16, weight: .semibold), .paragraphStyle: paragraph])
+            attributes: [.font: NSFont.systemFont(ofSize: 20, weight: .semibold), .paragraphStyle: paragraph])
         return max(28, ceil(bounds.height) + 10)
     }
     var mainContentHeight: CGFloat { max(168, activeLyricHeight + 136) }
-    var expandedHeight: CGFloat { barHeight + mainContentHeight + 8 + (toolsOpen ? 92 : 44) }
+    var toolSectionHeight: CGFloat { toolsOpen ? 114 : 52 }
+    var expandedHeight: CGFloat { barHeight + mainContentHeight + toolSectionHeight }
     var lyricElapsed: Double {
         guard let currentLine, lines.indices.contains(currentLine) else { return 0 }
         return max(0, position + lyricAdvanceMS / 1000 - lines[currentLine].time)
@@ -205,9 +210,11 @@ struct LyricsResponse: Decodable { let syncedLyrics: String?; let plainLyrics: S
 
 // Concave shoulders join the screen edge; convex lower corners form the notch.
 struct NotchSilhouette: Shape {
+    var bottomRadius: CGFloat = 24
+    var animatableData: CGFloat { get { bottomRadius } set { bottomRadius = newValue } }
     func path(in rect: CGRect) -> Path {
         let shoulder: CGFloat = min(12, rect.height * 0.28)
-        let bottom: CGFloat = min(24, rect.height * 0.42)
+        let bottom: CGFloat = min(bottomRadius, rect.height * 0.42)
         let left = rect.minX + shoulder
         let right = rect.maxX - shoulder
         var p = Path()
@@ -300,13 +307,13 @@ struct ThreeLyrics: View {
                 ForEach(player.visibleLyrics) { line in
                     let active = line.id == player.currentLine
                     Text(line.text.isEmpty ? "♪" : line.text)
-                        .font(.system(size: active ? 16 : 14, weight: active ? .semibold : .regular))
+                        .font(.system(size: active ? 20 : 16, weight: active ? .semibold : .regular))
                         .lineSpacing(2)
                         .lineLimit(active ? nil : 1)
                         .fixedSize(horizontal: false, vertical: active)
                         .foregroundStyle(active ? Color.white : Color.white.opacity(0.38))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: active ? player.activeLyricHeight : 26, alignment: .leading)
+                        .frame(height: active ? player.activeLyricHeight : 28, alignment: .leading)
                         .transition(.modifier(active: LyricDissolve(hidden: true), identity: LyricDissolve(hidden: false)))
                 }
                 if player.currentLine == nil { Text("♪").foregroundStyle(.white).frame(height: 28) }
@@ -321,88 +328,31 @@ struct ThreeLyrics: View {
 }
 private enum PanelStyle { static let surface = Color(white: 0.08) }
 
-// Native anchored popovers work independently of the panel's clipped SwiftUI layout.
-private struct PanelHoverRegion: NSViewRepresentable {
-    let text: String
-    let changed: (Bool) -> Void
-    func makeNSView(context: Context) -> HoverView { HoverView(text: text, changed: changed) }
-    func updateNSView(_ view: HoverView, context: Context) { view.text = text; view.changed = changed }
-    static func dismantleNSView(_ view: HoverView, coordinator: ()) { view.closeTooltip() }
-    final class HoverView: NSView {
-        var text: String
-        var changed: (Bool) -> Void
-        private var area: NSTrackingArea?
-        private var inside = false
-        private var pending: DispatchWorkItem?
-        private var popover: NSPopover?
-        init(text: String, changed: @escaping (Bool) -> Void) {
-            self.text = text; self.changed = changed; super.init(frame: .zero)
-        }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        func closeTooltip() { pending?.cancel(); pending = nil; popover?.close(); popover = nil }
-        private func setInside(_ value: Bool) {
-            guard inside != value else { return }
-            inside = value; closeTooltip()
-            let callback = changed
-            DispatchQueue.main.async { callback(value) }
-            guard value else { return }
-            let task = DispatchWorkItem { [weak self] in self?.showTooltip() }
-            pending = task
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: task)
-        }
-        private func showTooltip() {
-            guard inside, let window, window.isVisible else { return }
-            let label = NSTextField(labelWithString: text)
-            label.font = .systemFont(ofSize: 11, weight: .medium)
-            label.alignment = .center
-            let size = NSSize(width: ceil(label.fittingSize.width) + 24, height: 30)
-            let controller = NSViewController()
-            controller.view = NSView(frame: NSRect(origin: .zero, size: size))
-            label.frame = NSRect(x: 12, y: (size.height - label.fittingSize.height) / 2,
-                                 width: size.width - 24, height: label.fittingSize.height)
-            controller.view.addSubview(label)
-            let tip = NSPopover()
-            tip.contentViewController = controller; tip.contentSize = size
-            tip.behavior = .applicationDefined; tip.animates = false
-            tip.appearance = NSAppearance(named: .darkAqua)
-            popover = tip
-            tip.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
-            // Hover feedback must not intercept clicks or pointer tracking.
-            controller.view.window?.ignoresMouseEvents = true
-        }
-        override func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            if let area { removeTrackingArea(area) }
-            let next = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-            addTrackingArea(next); area = next
-            if let window, window.isVisible {
-                let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
-                setInside(bounds.contains(point))
-            } else { setInside(false) }
-        }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window == nil { setInside(false); closeTooltip() }
-        }
-        override func mouseEntered(with event: NSEvent) { setInside(true) }
-        override func mouseExited(with event: NSEvent) { setInside(false) }
+// Capture exact SwiftUI control bounds; one coordinator owns hover and the popover.
+private struct ToolHoverRegionsKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
     }
 }
 private extension View {
-    func panelTooltip(_ text: String, onHover: @escaping (Bool) -> Void = { _ in }) -> some View {
-        background(PanelHoverRegion(text: text, changed: onHover))
+    func panelTooltip(_ text: String) -> some View {
+        background(GeometryReader { geometry in
+            Color.clear.preference(key: ToolHoverRegionsKey.self,
+                                   value: [text: geometry.frame(in: .named("notchContent"))])
+        })
     }
 }
 
 struct ToolbarAction: View {
+    @ObservedObject var player: Player
     let symbol: String
     let label: String
     var active = false
     var state: String? = nil
     var destructive = false
     let action: () -> Void
-    @State private var hovering = false
+    private var hovering: Bool { player.hoveredTool == label }
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
         Button(action: action) {
@@ -413,51 +363,141 @@ struct ToolbarAction: View {
                 .background(active ? Color.green.opacity(hovering ? 0.20 : 0.12) : Color.white.opacity(hovering ? 0.08 : 0), in: RoundedRectangle(cornerRadius: 8))
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
                 .contentShape(Rectangle())
-        }.panelTooltip(label, onHover: { hovering = $0 }).accessibilityLabel(label).accessibilityValue(state ?? "")
+        }.frame(width: 32, height: 28).panelTooltip(label).accessibilityLabel(label).accessibilityValue(state ?? "")
     }
 }
-struct ToolsPanel: View {
+private enum LyricTimingScale {
+    static let step = 100.0
+    static let spacing = 10.0
+    static func clamped(_ value: Double) -> Double {
+        min(5000, max(-5000, (value / step).rounded() * step))
+    }
+    static func dragged(start: Double, translation: Double) -> Double {
+        clamped(start - translation / spacing * step)
+    }
+}
+private struct TimingPointer: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+private struct TimingRulerMarks: View, Animatable {
+    var value: Double
+    var animatableData: Double { get { value } set { value = newValue } }
+    var body: some View {
+        Canvas { context, size in
+            let center = size.width / 2
+            for tick in -50...50 {
+                let milliseconds = Double(tick) * LyricTimingScale.step
+                let x = center + (milliseconds - value) / LyricTimingScale.step * LyricTimingScale.spacing
+                guard x >= -20 && x <= size.width + 20 else { continue }
+                let major = tick.isMultiple(of: 5)
+                let selectedSide = milliseconds <= value
+                // Localized bell-shaped peak matches the reference without enlarging the editor.
+                let distance = abs(x - center)
+                let emphasis = exp(-pow(distance / 18, 2))
+                let minimumHeight = major ? 3.6 : 2.7
+                let height = minimumHeight + (14 - minimumHeight) * emphasis
+                let width = 0.65 + 0.70 * emphasis
+                let tint = (selectedSide ? Color.green : Color.white.opacity(0.23))
+                    .opacity(0.6 + 0.4 * emphasis)
+                let mark = CGRect(x: x - width / 2, y: 16 - height / 2, width: width, height: height)
+                context.fill(Path(roundedRect: mark, cornerRadius: width / 2), with: .color(tint))
+                if major {
+                    let label = milliseconds == 0 ? "0" : String(format: "%+.0f", milliseconds)
+                    context.draw(Text(label).font(.system(size: 8 * (0.8 + 0.2 * emphasis), weight: .medium, design: .rounded))
+                        .foregroundColor(selectedSide ? Color.green : Color.white.opacity(0.4)),
+                        at: CGPoint(x: x, y: 4))
+                }
+            }
+        }
+    }
+}
+struct LyricTimingRuler: View {
+    @Binding var value: Double
+    @State private var dragStart: Double?
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    var body: some View {
+        TimingRulerMarks(value: value)
+            .animation(reduceMotion || dragStart != nil ? nil : .spring(response: 0.24, dampingFraction: 0.95), value: value)
+        .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.12),
+                                     .init(color: .black, location: 0.88), .init(color: .clear, location: 1)],
+                             startPoint: .leading, endPoint: .trailing))
+        .overlay(alignment: .bottom) {
+            TimingPointer().fill(Color.green).frame(width: 6, height: 3).offset(y: 3).allowsHitTesting(false)
+        }
+        .frame(height: 24).contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { event in
+                if dragStart == nil { dragStart = value }
+                value = LyricTimingScale.dragged(start: dragStart ?? value, translation: event.translation.width)
+            }
+            .onEnded { _ in dragStart = nil })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Audio delay")
+        .accessibilityValue(String(format: "%+.0f milliseconds", value))
+        .accessibilityHint("Drag left to show lyrics earlier, or right to show them later")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = LyricTimingScale.clamped(value + 100)
+            case .decrement: value = LyricTimingScale.clamped(value - 100)
+            @unknown default: break
+            }
+        }
+    }
+}
+struct ToolSection: View {
     @ObservedObject var player: Player
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             HStack(spacing: 6) {
-                ToolbarAction(symbol: player.pinned ? "pin.fill" : "pin", label: "Keep panel open",
+                ToolbarAction(player: player, symbol: player.pinned ? "pin.fill" : "pin", label: "Keep panel open",
                               active: player.pinned, state: player.pinned ? "On" : "Off") { player.pinned.toggle() }
-                ToolbarAction(symbol: "timer", label: "Audio delay",
+                ToolbarAction(player: player, symbol: "timer", label: "Audio delay",
                               active: player.toolsOpen, state: player.toolsOpen ? "Expanded" : "Collapsed") {
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { player.toolsOpen.toggle() }
+                    withAnimation(reduceMotion ? nil : NotchMotion.content) { player.toolsOpen.toggle() }
                 }
-                ToolbarAction(symbol: player.alwaysShowLyric ? "quote.bubble.fill" : "quote.bubble", label: "Always show lyrics",
+                ToolbarAction(player: player, symbol: player.alwaysShowLyric ? "quote.bubble.fill" : "quote.bubble", label: "Always show lyrics",
                               active: player.alwaysShowLyric, state: player.alwaysShowLyric ? "On" : "Off") {
                     player.alwaysShowLyric.toggle()
                 }
-                ToolbarAction(symbol: "arrow.clockwise", label: "Refresh lyrics") { player.retry() }
+                ToolbarAction(player: player, symbol: "arrow.clockwise", label: "Refresh lyrics") { player.retry() }
                 Spacer(minLength: 8)
-                ToolbarAction(symbol: "power", label: "Quit NotchLyrics", destructive: true) { NSApp.terminate(nil) }
-            }.frame(height: 28)
+                ToolbarAction(player: player, symbol: "power", label: "Quit NotchLyrics", destructive: true) { NSApp.terminate(nil) }
+            }.padding(.horizontal, 12).frame(height: 28)
             if player.toolsOpen {
-                HStack(spacing: 8) {
-                    Button { player.lyricAdvanceMS = max(-5000, player.lyricAdvanceMS - 100) } label: {
-                        Image(systemName: "minus.circle").frame(width: 20, height: 24)
-                    }.panelTooltip("Show lyrics 100 ms later").accessibilityLabel("Show lyrics 100 ms later")
-                    Slider(value: $player.lyricAdvanceMS, in: -5000...5000, step: 100)
-                        .panelTooltip("Adjust lyric timing").accessibilityLabel("Lyric timing in milliseconds")
-                    Button { player.lyricAdvanceMS = min(5000, player.lyricAdvanceMS + 100) } label: {
-                        Image(systemName: "plus.circle").frame(width: 20, height: 24)
-                    }.panelTooltip("Show lyrics 100 ms earlier").accessibilityLabel("Show lyrics 100 ms earlier")
-                    Text(String(format: "%+.0f ms", player.lyricAdvanceMS))
-                        .font(.system(size: 11, design: .monospaced)).frame(width: 64)
-                    Button { player.lyricAdvanceMS = 0 } label: {
-                        Image(systemName: "arrow.counterclockwise").font(.system(size: 11)).frame(width: 20, height: 24)
-                    }.panelTooltip("Reset audio delay").accessibilityLabel("Reset audio delay")
-                }.frame(height: 32)
-                .transition(.opacity)
+                VStack(spacing: 2) {
+                    LyricTimingRuler(value: $player.lyricAdvanceMS).padding(.vertical, 4)
+                    ZStack {
+                        Text(String(format: "%+.0f", player.lyricAdvanceMS))
+                            .font(.system(size: 13, weight: .medium, design: .rounded)).monospacedDigit()
+                        + Text(" ms").font(.system(size: 9, weight: .medium))
+                        HStack(spacing: 4) {
+                            Button { player.lyricAdvanceMS = LyricTimingScale.clamped(player.lyricAdvanceMS - 100) } label: {
+                                Image(systemName: "minus.circle").font(.system(size: 12)).frame(width: 24, height: 22)
+                            }.foregroundStyle(Color.white.opacity(0.65)).accessibilityLabel("Show lyrics 100 ms later")
+                            Spacer(minLength: 0)
+                            Button { player.lyricAdvanceMS = LyricTimingScale.clamped(player.lyricAdvanceMS + 100) } label: {
+                                Image(systemName: "plus.circle").font(.system(size: 12)).frame(width: 24, height: 22)
+                            }.foregroundStyle(Color.white.opacity(0.65)).accessibilityLabel("Show lyrics 100 ms earlier")
+                        }
+                    }.foregroundStyle(.green).frame(height: 22)
+                    .overlay(alignment: .trailing) {
+                        Button { player.lyricAdvanceMS = 0 } label: {
+                            Image(systemName: "arrow.counterclockwise").font(.system(size: 10)).frame(width: 20, height: 22)
+                        }.panelTooltip("Reset audio delay").accessibilityLabel("Reset audio delay")
+                            .foregroundStyle(Color.white.opacity(0.6)).offset(x: -32)
+                    }.padding(.horizontal, 12)
+                }.frame(maxWidth: .infinity).frame(height: 56).transition(.opacity)
             }
-        }.padding(.horizontal, 14).padding(.vertical, 8)
-        .frame(maxWidth: .infinity).frame(height: player.toolsOpen ? 92 : 44, alignment: .top)
-        .background(PanelStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+        }.padding(.horizontal, 18).padding(.vertical, 12)
+        .frame(maxWidth: .infinity).frame(height: player.toolSectionHeight, alignment: .top)
         .foregroundStyle(.white).buttonStyle(.plain).preferredColorScheme(.dark)
     }
 }
@@ -483,72 +523,176 @@ struct PersistentLyric: View {
         .preferredColorScheme(.dark)
     }
 }
+private enum NotchMotion {
+    static let content = Animation.spring(response: 0.32, dampingFraction: 0.96, blendDuration: 0.1)
+}
+// One persistent header keeps artwork, metadata and controls continuous across modes.
+struct NotchPlaybackHeader: View {
+    @ObservedObject var player: Player
+    let open: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: open) {
+                HStack(spacing: 10) {
+                    AlbumCover(image: player.cover).frame(width: 32, height: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(player.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text(player.artist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.contentShape(Rectangle())
+            }.accessibilityLabel("Open player: \(player.title), \(player.artist)")
+                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
+            HStack(spacing: 3) {
+                Button { player.command("previous track") } label: {
+                    Image(systemName: "backward.end.fill").font(.system(size: 11)).frame(width: 26, height: 30)
+                }.accessibilityLabel("Previous track")
+                Button { player.command("playpause") } label: {
+                    Image(systemName: player.playing ? "pause.fill" : "play.fill").font(.system(size: 15)).frame(width: 28, height: 30)
+                }.accessibilityLabel(player.playing ? "Pause" : "Play")
+                Button { player.command("next track") } label: {
+                    Image(systemName: "forward.end.fill").font(.system(size: 11)).frame(width: 26, height: 30)
+                }.accessibilityLabel("Next track")
+            }.fixedSize()
+        }.padding(.horizontal, player.expanded ? 30 : 22).frame(height: player.expanded ? 56 : 52)
+        .background {
+            Button(action: open) { Color.clear.contentShape(Rectangle()) }
+                .buttonStyle(.plain).accessibilityHidden(true)
+        }
+        .foregroundStyle(.white).buttonStyle(.plain)
+    }
+}
+
 struct NotchView: View {
     @ObservedObject var player: Player
     var resize: (Bool) -> Void
+    var updateToolRegions: ([String: CGRect]) -> Void
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 8) {
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: player.barHeight)
-                    VStack(spacing: 12) {
-                        HStack(spacing: 8) {
-                            AlbumCover(image: player.cover).frame(width: 32, height: 32)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(player.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                                Text(player.artist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                            }.frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
-                            HStack(spacing: 3) {
-                                Button { player.command("previous track") } label: { Image(systemName: "backward.end.fill").font(.system(size: 11)).frame(width: 24, height: 28) }
-                                Button { player.command("playpause") } label: { Image(systemName: player.playing ? "pause.fill" : "play.fill").font(.system(size: 15)).frame(width: 26, height: 28) }
-                                Button { player.command("next track") } label: { Image(systemName: "forward.end.fill").font(.system(size: 11)).frame(width: 24, height: 28) }
-                            }.fixedSize()
-
-                        }
-                        ThreeLyrics(player: player)
-                    }.padding(.horizontal, 30).padding(.vertical, 12).frame(height: player.mainContentHeight)
+            let showingHeader = player.expanded || player.previewing
+            VStack(spacing: 0) {
+                Color.clear.frame(height: player.barHeight)
+                NotchPlaybackHeader(player: player, open: { resize(true) })
+                    .opacity(showingHeader ? 1 : 0)
+                    .blur(radius: reduceMotion || showingHeader ? 0 : 2)
+                    .allowsHitTesting(showingHeader).accessibilityHidden(!showingHeader)
+                ThreeLyrics(player: player)
+                    .padding(.horizontal, 30).padding(.bottom, 12)
+                    .frame(height: player.expanded ? player.mainContentHeight - 56 : 0, alignment: .top)
                     .opacity(player.expanded ? 1 : 0)
-                    .blur(radius: reduceMotion ? 0 : (player.expanded ? 0 : 4))
+                    .blur(radius: reduceMotion || player.expanded ? 0 : 2)
+                    .offset(y: player.expanded || reduceMotion ? 0 : -6)
+                    .clipped().allowsHitTesting(player.expanded).accessibilityHidden(!player.expanded)
+                ToolSection(player: player)
+                    .frame(height: player.expanded ? player.toolSectionHeight : 0, alignment: .top)
+                    .opacity(player.expanded ? 1 : 0).clipped()
                     .allowsHitTesting(player.expanded).accessibilityHidden(!player.expanded)
-                }.frame(width: geometry.size.width, height: player.expanded ? player.barHeight + player.mainContentHeight : player.barHeight, alignment: .top)
-                .background {
-                    if player.expanded {
-                        LinearGradient(stops: [.init(color: .black, location: 0),
-                                               .init(color: .black, location: 0.16),
-                                               .init(color: PanelStyle.surface, location: 0.7)],
-                                       startPoint: .top, endPoint: .bottom)
-                    } else { Color.black }
-                }
-                .overlay(alignment: .top) {
-                    HStack(spacing: 0) {
-                        AlbumCover(image: player.cover).frame(width: 20, height: 20).frame(width: 34)
-                        Spacer(minLength: player.cameraWidth)
-                        PlaybackBars(playing: player.playing).frame(width: 34)
-                    }.padding(.horizontal, 12).frame(height: player.barHeight)
-                    .opacity(player.expanded ? 0 : 1).allowsHitTesting(false)
-                }.clipShape(NotchSilhouette())
-                .onTapGesture { if !player.expanded { resize(true) } }
-                if player.expanded { ToolsPanel(player: player).padding(.horizontal, 12).transition(.opacity) }
-            }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .top).clipped()
+            }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            .background {
+                LinearGradient(stops: [.init(color: .black, location: 0),
+                                       .init(color: .black, location: 0.16),
+                                       .init(color: player.expanded ? PanelStyle.surface : .black, location: 0.7)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .overlay(alignment: .top) {
+                Button { resize(!player.expanded) } label: {
+                    ZStack {
+                        Color.clear
+                        HStack(spacing: 0) {
+                            AlbumCover(image: player.cover).frame(width: 20, height: 20).frame(width: 34)
+                            Spacer(minLength: player.cameraWidth)
+                            PlaybackBars(playing: player.playing).frame(width: 34)
+                        }.padding(.horizontal, 12).opacity(showingHeader ? 0 : 1)
+                    }.frame(height: player.barHeight).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel(player.expanded ? "Close player" : "Open player")
+            }
+            .clipShape(NotchSilhouette(bottomRadius: player.expanded ? 36 : (player.previewing ? 24 : 14)))
             .foregroundStyle(.white).buttonStyle(.plain).preferredColorScheme(.dark)
+            .coordinateSpace(name: "notchContent")
+            .onPreferenceChange(ToolHoverRegionsKey.self) { regions in updateToolRegions(regions) }
             .onChange(of: player.currentLine) { _ in if player.expanded { resize(true) } }
-            .onChange(of: player.toolsOpen) { _ in resize(player.expanded) }
+            .onChange(of: player.toolsOpen) { _ in if player.expanded { resize(true) } }
             .contextMenu { Button("Keluar") { NSApp.terminate(nil) } }
         }
+    }
+}
+
+// Exact critically damped integration preserves momentum when a gesture reverses.
+private enum PanelSpring {
+    static func step(value: Double, velocity: Double, target: Double, dt: Double) -> (Double, Double) {
+        let omega = 24.0
+        let offset = value - target
+        let coefficient = velocity + omega * offset
+        let decay = exp(-omega * dt)
+        return (target + (offset + coefficient * dt) * decay,
+                (velocity - omega * coefficient * dt) * decay)
+    }
+}
+@MainActor private final class NotchFrameMotion {
+    weak var window: NSWindow?
+    private var target = NSRect.zero
+    private var velocity = NSSize.zero
+    private var currentSize = NSSize.zero
+    private var timer: Timer?
+    private var sampledAt = 0.0
+    init(window: NSWindow) { self.window = window }
+    func move(to next: NSRect, reducedMotion: Bool) {
+        guard let window else { return }
+        if reducedMotion || !window.isVisible {
+            stop(); target = next; currentSize = next.size; window.setFrame(next, display: true); return
+        }
+        guard next != target else { return }
+        target = next
+        guard timer == nil else { return }
+        velocity = .zero; currentSize = window.frame.size; sampledAt = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        self.timer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func tick() {
+        guard let window else { stop(); return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let dt = min(0.05, now - sampledAt); sampledAt = now
+        let width = PanelSpring.step(value: currentSize.width, velocity: velocity.width, target: target.width, dt: dt)
+        let height = PanelSpring.step(value: currentSize.height, velocity: velocity.height, target: target.height, dt: dt)
+        velocity = NSSize(width: width.1, height: height.1)
+        let size = NSSize(width: max(1, width.0), height: max(1, height.0))
+        currentSize = size
+        // Keep the top edge and horizontal center fixed throughout the morph.
+        window.setFrame(NSRect(x: target.midX - size.width / 2, y: target.maxY - size.height,
+                               width: size.width, height: size.height), display: true)
+        if abs(size.width - target.width) < 0.1 && abs(size.height - target.height) < 0.1 &&
+            abs(velocity.width) + abs(velocity.height) < 1 {
+            window.setFrame(target, display: true); stop()
+        }
+    }
+    func stop() { timer?.invalidate(); timer = nil; velocity = .zero }
+}
+
+private enum NotchTopEdgeHit {
+    static func contains(_ point: NSPoint, panelFrame: NSRect, screenFrame: NSRect, scale: CGFloat) -> Bool {
+        // A two-physical-pixel band includes the top boundary that CGRect.contains excludes.
+        let tolerance = 2 / max(1, scale)
+        return point.x >= panelFrame.minX && point.x <= panelFrame.maxX &&
+            point.y >= screenFrame.maxY - tolerance && point.y <= screenFrame.maxY + tolerance
     }
 }
 
 @MainActor final class Delegate: NSObject, NSApplicationDelegate {
     let player = Player()
     var panel: NSPanel!
+    private var frameMotion: NotchFrameMotion?
     var lyricPanel: NSPanel!
     var collapsedNotchFrame = NSRect.zero
     var subscriptions = Set<AnyCancellable>()
     var status: NSStatusItem!
-    var collapseTask: Task<Void, Never>?
+    var toolRegions: [String: CGRect] = [:]
+    var toolTip: NSPopover?
+    var previewHideTask: Task<Void, Never>?
+    var globalClickMonitor: Any?
+    var localClickMonitor: Any?
     var pointerTimer: Timer?
-    var pointerInside = false
     let pillHoverMargin: CGFloat = 12
     let pillNotchGap: CGFloat = 11
     var pillHoverBounds: NSRect?
@@ -559,9 +703,13 @@ struct NotchView: View {
         panel.hasShadow = false; panel.hidesOnDeactivate = false
         panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        let hosting = NSHostingView(rootView: NotchView(player: player, resize: { [weak self] in self?.resize($0) }))
+        let hosting = NSHostingView(rootView: NotchView(player: player, resize: { [weak self] in self?.resize($0) },
+                                                 updateToolRegions: { [weak self] regions in
+                                                     DispatchQueue.main.async { self?.updateToolRegions(regions) }
+                                                 }))
         hosting.sizingOptions = []
         panel.contentView = hosting
+        frameMotion = NotchFrameMotion(window: panel)
         lyricPanel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         lyricPanel.level = panel.level; lyricPanel.isOpaque = false; lyricPanel.backgroundColor = .clear
         lyricPanel.hasShadow = false; lyricPanel.hidesOnDeactivate = false
@@ -585,11 +733,34 @@ struct NotchView: View {
         for item in menu.items { item.target = self }; status.menu = menu
         NotificationCenter.default.addObserver(self, selector: #selector(reposition), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         resize(false); panel.orderFrontRegardless(); player.start(); positionLyricPanel()
-        // Window resizing can emit false hover exits. Track screen-space position instead.
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            let point = NSEvent.mouseLocation
+            let leftClick = event.type == .leftMouseDown
+            Task { @MainActor in
+                guard let self else { return }
+                if leftClick && self.handleTopEdgeClick(point) { return }
+                self.dismissForOutsideClick(point)
+            }
+        }
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            let point = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+            let leftClick = event.type == .leftMouseDown
+            let consumed = MainActor.assumeIsolated {
+                guard let self else { return false }
+                // Consume only edge clicks; otherwise the SwiftUI button would toggle a second time.
+                if leftClick && self.handleTopEdgeClick(point) { return true }
+                self.dismissForOutsideClick(point)
+                return false
+            }
+            return consumed ? nil : event
+        }
+        // Hover reveals only playback preview; the full panel still requires a click.
         pointerTimer = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 let point = NSEvent.mouseLocation
+                self.refreshNotchPreview(point)
+                self.refreshToolHover()
                 // Retain the hidden pill's hit region until the pointer leaves it.
                 // Otherwise hiding the window would immediately cause it to reappear.
                 if let bounds = self.pillHoverBounds {
@@ -601,31 +772,105 @@ struct NotchView: View {
                     self.pillHoverBounds = self.lyricPanel.frame.insetBy(dx: -self.pillHoverMargin, dy: -self.pillHoverMargin)
                     self.lyricPanel.orderOut(nil)
                 }
-                let frame = self.panel.frame
-                // Include the physical screen edge: CGRect.contains excludes maxY.
-                let inside = (point.x >= frame.minX && point.x <= frame.maxX &&
-                     point.y >= frame.minY && point.y <= frame.maxY + 1)
-                if inside != self.pointerInside { self.pointerInside = inside; self.hover(inside) }
             }
         }
         RunLoop.main.add(pointerTimer!, forMode: .common)
     }
-    func hover(_ inside: Bool) {
-        collapseTask?.cancel()
-        if inside { if !player.expanded { resize(true) }; return }
-        guard !player.pinned else { return }
-        collapseTask = Task {
-            try? await Task.sleep(nanoseconds: 90_000_000)
-            guard !Task.isCancelled else { return }
-            resize(false)
+    func updateToolRegions(_ regions: [String: CGRect]) {
+        guard toolRegions != regions else { return }
+        toolRegions = regions
+        refreshToolHover()
+        if let text = player.hoveredTool, let tip = toolTip, tip.isShown,
+           let host = panel.contentView, var rect = toolRegions[text] {
+            if !host.isFlipped { rect.origin.y = host.bounds.height - rect.maxY }
+            tip.show(relativeTo: rect, of: host, preferredEdge: host.isFlipped ? .minY : .maxY)
         }
     }
-    func resize(_ expanded: Bool) {
+    func toolAtPointer() -> String? {
+        guard player.expanded, panel.isVisible, let host = panel.contentView,
+              panel.frame.contains(NSEvent.mouseLocation) else { return nil }
+        var point = host.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        if !host.isFlipped { point.y = host.bounds.height - point.y }
+        return toolRegions.filter { $0.value.width > 0 && $0.value.height > 0 && $0.value.contains(point) }
+            .sorted { $0.value.width * $0.value.height < $1.value.width * $1.value.height }
+            .first?.key
+    }
+    func refreshToolHover() { setHoveredTool(toolAtPointer()) }
+    func setHoveredTool(_ label: String?) {
+        guard player.hoveredTool != label else { return }
+        toolTip?.close(); toolTip = nil
+        player.hoveredTool = label
+        guard let label else { return }
+        showToolTip(label)
+    }
+
+    func showToolTip(_ text: String) {
+        guard toolAtPointer() == text, let host = panel.contentView, var rect = toolRegions[text] else { return }
+        if !host.isFlipped { rect.origin.y = host.bounds.height - rect.maxY }
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11, weight: .medium); label.alignment = .center
+        let size = NSSize(width: ceil(label.fittingSize.width) + 24, height: 30)
+        let controller = NSViewController()
+        controller.view = NSView(frame: NSRect(origin: .zero, size: size))
+        label.frame = NSRect(x: 12, y: (size.height - label.fittingSize.height) / 2,
+                             width: size.width - 24, height: label.fittingSize.height)
+        controller.view.addSubview(label)
+        let tip = NSPopover()
+        tip.contentViewController = controller; tip.contentSize = size
+        tip.behavior = .applicationDefined; tip.animates = false
+        tip.appearance = NSAppearance(named: .darkAqua)
+        toolTip?.close(); toolTip = tip
+        tip.show(relativeTo: rect, of: host, preferredEdge: host.isFlipped ? .minY : .maxY)
+        controller.view.window?.ignoresMouseEvents = true
+    }
+    func pointerIsOverNotch(_ point: NSPoint) -> Bool {
+        let frame = panel.frame
+        return point.x >= frame.minX && point.x <= frame.maxX &&
+            point.y >= frame.minY && point.y <= frame.maxY + 1
+    }
+    func refreshNotchPreview(_ point: NSPoint) {
+        guard !player.expanded else { previewHideTask?.cancel(); previewHideTask = nil; return }
+        if pointerIsOverNotch(point) {
+            previewHideTask?.cancel(); previewHideTask = nil
+            if !player.previewing { resize(false, preview: true) }
+        } else if player.previewing && previewHideTask == nil {
+            previewHideTask = Task { [weak self] in
+                do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
+                guard let self, !Task.isCancelled, !self.player.expanded,
+                      !self.pointerIsOverNotch(NSEvent.mouseLocation) else { return }
+                self.previewHideTask = nil
+                self.resize(false)
+            }
+        }
+    }
+    @discardableResult func handleTopEdgeClick(_ point: NSPoint) -> Bool {
+        guard let screen = NSScreen.screens.first, panel.isVisible,
+              NotchTopEdgeHit.contains(point, panelFrame: panel.frame,
+                                       screenFrame: screen.frame, scale: screen.backingScaleFactor) else { return false }
+        resize(!player.expanded)
+        panel.orderFrontRegardless()
+        return true
+    }
+    func dismissForOutsideClick(_ point: NSPoint) {
+        guard player.expanded, !player.pinned, !panel.frame.contains(point) else { return }
+        resize(false)
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        setHoveredTool(nil)
+        previewHideTask?.cancel()
+        if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
+        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
+        pointerTimer?.invalidate()
+        frameMotion?.stop()
+    }
+    func resize(_ expanded: Bool, preview: Bool = false) {
+        if !expanded { setHoveredTool(nil) }
         guard let screen = NSScreen.screens.first else { return }
-        let changed = player.expanded != expanded
+        let preview = preview && !expanded
         let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        withAnimation(reducedMotion ? nil : .easeInOut(duration: 0.14)) {
+        withAnimation(reducedMotion ? nil : NotchMotion.content) {
             player.expanded = expanded
+            player.previewing = preview
             if !expanded { player.toolsOpen = false }
         }
         let left = screen.auxiliaryTopLeftArea
@@ -638,8 +883,8 @@ struct NotchView: View {
         let barHeight = hasCamera ? screen.safeAreaInsets.top : NSStatusBar.system.thickness
         player.cameraWidth = cameraWidth
         player.barHeight = barHeight
-        let size = NSSize(width: expanded ? max(380, cameraWidth + 100) : cameraWidth + 92,
-                          height: expanded ? player.expandedHeight : barHeight)
+        let size = NSSize(width: expanded ? player.expandedWidth : (preview ? player.previewWidth : cameraWidth + 92),
+                          height: expanded ? player.expandedHeight : (preview ? barHeight + 52 : barHeight))
         let scale = screen.backingScaleFactor
         func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         // Canonical idle geometry is independent of the animated window frame.
@@ -649,18 +894,13 @@ struct NotchView: View {
                                     width: pixel(idleWidth), height: pixel(barHeight))
         let target = NSRect(x: pixel(centerX - size.width / 2), y: pixel(screen.frame.maxY - size.height),
                               width: pixel(size.width), height: pixel(size.height))
-        if (changed || target != panel.frame) && !reducedMotion {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                panel.animator().setFrame(target, display: true)
-            }
-        } else { panel.setFrame(target, display: true) }
+        if let frameMotion { frameMotion.move(to: target, reducedMotion: reducedMotion) }
+        else { panel.setFrame(target, display: true) }
         positionLyricPanel()
     }
     func positionLyricPanel() {
         guard let screen = NSScreen.screens.first, lyricPanel != nil else { return }
-        guard player.alwaysShowLyric && player.playing && !player.expanded else { lyricPanel.orderOut(nil); return }
+        guard player.alwaysShowLyric && player.playing && !player.expanded && !player.previewing else { lyricPanel.orderOut(nil); return }
         guard pillHoverBounds == nil else { lyricPanel.orderOut(nil); return }
         let base = collapsedNotchFrame
         let textWidth = (player.lyricText(relative: 0) as NSString).size(withAttributes:
@@ -669,7 +909,7 @@ struct NotchView: View {
         lyricPanel.setFrame(NSRect(x: base.midX - width / 2, y: base.minY - pillNotchGap - 34, width: width, height: 34), display: true)
         lyricPanel.orderFrontRegardless()
     }
-    @objc func reposition() { resize(player.expanded) }
+    @objc func reposition() { resize(player.expanded, preview: player.previewing) }
     @objc func toggle() { resize(!player.expanded); panel.orderFrontRegardless() }
     @objc func quit() { NSApp.terminate(nil) }
 }
