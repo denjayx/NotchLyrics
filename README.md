@@ -27,10 +27,11 @@ Open Spotify and allow NotchLyrics to control it when prompted. No Dock icon app
 - Hover the notch/top-center edge to reveal the player and three lyric lines.
 - Use previous, play/pause and next without switching to Spotify.
 - Pin keeps the main panel open.
-- Settings opens a separate tools island with **Always show lyric** and **Audio delay**.
+- A compact bottom toolbar contains Keep panel open, Audio delay, Always show lyrics, Refresh lyrics, and Quit. SF Symbols use green active states and English native hover popovers and subtle hover backgrounds.
+- The timer icon opens the audio-delay slider within the bottom island. Timing is always applied; reset to 0 ms for no offset. Refresh lyrics clears the current track’s cached lyrics before requesting them again.
 - Positive timing makes lyrics appear earlier; negative timing makes them appear later. Audio playback itself is unchanged.
 - The floating lyric pill hides while paused, while the main panel is open, or when the pointer approaches it.
-- Quit using the music-note menu bar item → **Keluar**, or right-click the notch.
+- Quit using the power icon in the bottom toolbar, the music-note menu bar item → **Keluar**, or right-click the notch.
 
 Lyrics depend on [LRCLIB](https://lrclib.net). Some tracks have no synced lyrics or use different timing for live/remastered versions. Spotify supplies track metadata and playback position; the app fetches timestamps and selects the active lyric locally.
 

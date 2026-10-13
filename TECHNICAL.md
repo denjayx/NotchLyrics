@@ -10,7 +10,7 @@ NotchLyrics is a native, single-process macOS accessory app. The runtime is in `
 | `Delegate` | App lifecycle, menu bar item, screen geometry, two NSPanel windows, hover tracking and window transitions |
 | `NotchView` | Collapsed artwork/EQ; expanded header, controls, lyrics and optional settings island |
 | `ThreeLyrics` | Previous/current/next lines; active line can wrap; identity-based transitions |
-| `ToolsPanel` | Always-show toggle and timing slider, shown together after a single Settings click |
+| `ToolsPanel` | SF Symbols toolbar for pin, timer-based delay editor, always-show lyrics, refresh and quit; English tooltips and optional timing slider |
 | `PersistentLyric` | Separate floating lyric pill; native glass when available, material fallback |
 | `NotchSilhouette` | Custom path with concave upper shoulders and rounded lower corners |
 
@@ -37,7 +37,7 @@ The main panel tracks the pointer roughly every 30 ms, including the physical to
 
 Expanded width is `max(380, cameraWidth + 100)`. Main content height follows an NSString estimate of the active lyric's multiline height, with a minimum height. There is no vertical screen-height limit for extreme text. Previous/next lines are compact; the active main lyric is not truncated or scrolled horizontally.
 
-Settings is closed by default. Clicking it reveals an 88 pt tools island with an 8 pt visual gap. Clicking again or collapsing the main panel closes it. Expanded height includes the tools height only while open.
+A 44 pt toolbar island is always present while the main panel is expanded, with an 8 pt visual gap. Pin and the timing editor trigger live here instead of in the track header. The timing editor is closed by default; opening it grows the island to 92 pt. Collapsing the main panel closes the editor. The timer button opens or closes the timing editor; there is no separate delay-enable toggle. The saved offset always applies. Refresh is always available and evicts the current track cache before polling. Main expanded content fades vertically from black at the screen edge to the toolbar’s charcoal surface, keeping the physical notch camouflaged.
 
 The lyric pill appears only when enabled, playback is running, the main panel is collapsed, and the pointer is outside its suppression bounds. It is centered below the canonical **collapsed** notch frame, not the current animated frame. This prevents the pill from staying under the expanded window until the next lyric change.
 
@@ -49,7 +49,7 @@ The pill uses Liquid Glass on macOS 26+ and standard material on older systems. 
 
 - `alwaysShowLyric`: persistent bool in UserDefaults.
 - `lyricAdvanceMS`: global timing adjustment, -5000 to +5000 ms, 100 ms steps. Positive advances lyrics. Legacy `lyricOffset` is read with inverted sign if the new key does not exist.
-- Pin and Settings visibility are transient.
+- Pin and timing-editor visibility are transient.
 - Spotify Apple Events require user permission; Info.plist contains NSAppleEventsUsageDescription.
 - No OAuth, login, analytics or listening-history database.
 - Track metadata goes to LRCLIB; artwork requests go to Spotify-provided URLs.
@@ -81,3 +81,7 @@ The first GitHub release is a pre-release and is **not notarized**. Do not claim
 ## Release verification
 
 See `docs/RELEASE-NOTES.md` for the checks performed on the actual release artifact. For future releases, verify track changes, stale network responses, pause/resume/seek, timing controls, hover from all directions, pill return position, long lyrics, accessibility preferences, Automation permission prompts, and a quarantined download on another Mac.
+
+### Toolbar tooltip implementation
+
+Toolbar and timing controls use native NSPopover help bubbles anchored to the control bounds, with centered text, system chrome and arrow positioning. PanelHoverRegion uses an AppKit tracking area with activeAlways, so hover detection works while the panel is not key. A cancellable 350 ms delay precedes display; exit or view removal closes the popover. Popovers ignore mouse events and are not animated. Toolbar buttons share this hover state for a subtle background highlight; Reduce Motion disables the highlight animation. This replaces the previously left-aligned SwiftUI overlay.

@@ -35,7 +35,7 @@ struct LyricsResponse: Decodable { let syncedLyrics: String?; let plainLyrics: S
         return max(28, ceil(bounds.height) + 10)
     }
     var mainContentHeight: CGFloat { max(168, activeLyricHeight + 136) }
-    var expandedHeight: CGFloat { barHeight + mainContentHeight + (toolsOpen ? 8 + 88 : 0) }
+    var expandedHeight: CGFloat { barHeight + mainContentHeight + 8 + (toolsOpen ? 92 : 44) }
     var lyricElapsed: Double {
         guard let currentLine, lines.indices.contains(currentLine) else { return 0 }
         return max(0, position + lyricAdvanceMS / 1000 - lines[currentLine].time)
@@ -200,7 +200,7 @@ struct LyricsResponse: Decodable { let syncedLyrics: String?; let plainLyrics: S
             }
         }
     }
-    func retry() { trackID = ""; poll() }
+    func retry() { cache.removeValue(forKey: trackID); trackID = ""; poll() }
 }
 
 // Concave shoulders join the screen edge; convex lower corners form the notch.
@@ -319,35 +319,144 @@ struct ThreeLyrics: View {
         .animation(reduceMotion || !player.expanded ? nil : .easeInOut(duration: 0.46), value: player.currentLine)
     }
 }
+private enum PanelStyle { static let surface = Color(white: 0.08) }
+
+// Native anchored popovers work independently of the panel's clipped SwiftUI layout.
+private struct PanelHoverRegion: NSViewRepresentable {
+    let text: String
+    let changed: (Bool) -> Void
+    func makeNSView(context: Context) -> HoverView { HoverView(text: text, changed: changed) }
+    func updateNSView(_ view: HoverView, context: Context) { view.text = text; view.changed = changed }
+    static func dismantleNSView(_ view: HoverView, coordinator: ()) { view.closeTooltip() }
+    final class HoverView: NSView {
+        var text: String
+        var changed: (Bool) -> Void
+        private var area: NSTrackingArea?
+        private var inside = false
+        private var pending: DispatchWorkItem?
+        private var popover: NSPopover?
+        init(text: String, changed: @escaping (Bool) -> Void) {
+            self.text = text; self.changed = changed; super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        func closeTooltip() { pending?.cancel(); pending = nil; popover?.close(); popover = nil }
+        private func setInside(_ value: Bool) {
+            guard inside != value else { return }
+            inside = value; closeTooltip()
+            let callback = changed
+            DispatchQueue.main.async { callback(value) }
+            guard value else { return }
+            let task = DispatchWorkItem { [weak self] in self?.showTooltip() }
+            pending = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: task)
+        }
+        private func showTooltip() {
+            guard inside, let window, window.isVisible else { return }
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: 11, weight: .medium)
+            label.alignment = .center
+            let size = NSSize(width: ceil(label.fittingSize.width) + 24, height: 30)
+            let controller = NSViewController()
+            controller.view = NSView(frame: NSRect(origin: .zero, size: size))
+            label.frame = NSRect(x: 12, y: (size.height - label.fittingSize.height) / 2,
+                                 width: size.width - 24, height: label.fittingSize.height)
+            controller.view.addSubview(label)
+            let tip = NSPopover()
+            tip.contentViewController = controller; tip.contentSize = size
+            tip.behavior = .applicationDefined; tip.animates = false
+            tip.appearance = NSAppearance(named: .darkAqua)
+            popover = tip
+            tip.show(relativeTo: bounds, of: self, preferredEdge: .maxY)
+            // Hover feedback must not intercept clicks or pointer tracking.
+            controller.view.window?.ignoresMouseEvents = true
+        }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let area { removeTrackingArea(area) }
+            let next = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+            addTrackingArea(next); area = next
+            if let window, window.isVisible {
+                let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+                setInside(bounds.contains(point))
+            } else { setInside(false) }
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { setInside(false); closeTooltip() }
+        }
+        override func mouseEntered(with event: NSEvent) { setInside(true) }
+        override func mouseExited(with event: NSEvent) { setInside(false) }
+    }
+}
+private extension View {
+    func panelTooltip(_ text: String, onHover: @escaping (Bool) -> Void = { _ in }) -> some View {
+        background(PanelHoverRegion(text: text, changed: onHover))
+    }
+}
+
+struct ToolbarAction: View {
+    let symbol: String
+    let label: String
+    var active = false
+    var state: String? = nil
+    var destructive = false
+    let action: () -> Void
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(destructive ? Color.red.opacity(0.85) : (active ? Color.green : Color.white.opacity(0.65)))
+                .frame(width: 32, height: 28)
+                .background(active ? Color.green.opacity(hovering ? 0.20 : 0.12) : Color.white.opacity(hovering ? 0.08 : 0), in: RoundedRectangle(cornerRadius: 8))
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+                .contentShape(Rectangle())
+        }.panelTooltip(label, onHover: { hovering = $0 }).accessibilityLabel(label).accessibilityValue(state ?? "")
+    }
+}
 struct ToolsPanel: View {
     @ObservedObject var player: Player
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 14) {
-                Toggle("Always show lyric", isOn: $player.alwaysShowLyric).toggleStyle(.switch).controlSize(.mini)
-                    .font(.system(size: 11))
-                Spacer(minLength: 4)
-                Text("Audio delay").font(.system(size: 10)).foregroundStyle(.secondary)
-                if player.lines.isEmpty { Button("Retry") { player.retry() }.font(.system(size: 10)) }
-            }.frame(height: 24)
-            HStack(spacing: 8) {
-                Button { player.lyricAdvanceMS = max(-5000, player.lyricAdvanceMS - 100) } label: {
-                    Image(systemName: "minus.circle").frame(width: 20, height: 24)
-                }.accessibilityLabel("Perlambat lirik 100 ms")
-                Slider(value: $player.lyricAdvanceMS, in: -5000...5000, step: 100)
-                    .accessibilityLabel("Timing lirik dalam milidetik")
-                Button { player.lyricAdvanceMS = min(5000, player.lyricAdvanceMS + 100) } label: {
-                    Image(systemName: "plus.circle").frame(width: 20, height: 24)
-                }.accessibilityLabel("Percepat lirik 100 ms")
-                Text(String(format: "%+.0f ms", player.lyricAdvanceMS))
-                    .font(.system(size: 11, design: .monospaced)).frame(width: 64)
-                Button { player.lyricAdvanceMS = 0 } label: {
-                    Image(systemName: "arrow.counterclockwise").font(.system(size: 11)).frame(width: 20, height: 24)
-                }.accessibilityLabel("Reset timing lirik")
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                ToolbarAction(symbol: player.pinned ? "pin.fill" : "pin", label: "Keep panel open",
+                              active: player.pinned, state: player.pinned ? "On" : "Off") { player.pinned.toggle() }
+                ToolbarAction(symbol: "timer", label: "Audio delay",
+                              active: player.toolsOpen, state: player.toolsOpen ? "Expanded" : "Collapsed") {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { player.toolsOpen.toggle() }
+                }
+                ToolbarAction(symbol: player.alwaysShowLyric ? "quote.bubble.fill" : "quote.bubble", label: "Always show lyrics",
+                              active: player.alwaysShowLyric, state: player.alwaysShowLyric ? "On" : "Off") {
+                    player.alwaysShowLyric.toggle()
+                }
+                ToolbarAction(symbol: "arrow.clockwise", label: "Refresh lyrics") { player.retry() }
+                Spacer(minLength: 8)
+                ToolbarAction(symbol: "power", label: "Quit NotchLyrics", destructive: true) { NSApp.terminate(nil) }
+            }.frame(height: 28)
+            if player.toolsOpen {
+                HStack(spacing: 8) {
+                    Button { player.lyricAdvanceMS = max(-5000, player.lyricAdvanceMS - 100) } label: {
+                        Image(systemName: "minus.circle").frame(width: 20, height: 24)
+                    }.panelTooltip("Show lyrics 100 ms later").accessibilityLabel("Show lyrics 100 ms later")
+                    Slider(value: $player.lyricAdvanceMS, in: -5000...5000, step: 100)
+                        .panelTooltip("Adjust lyric timing").accessibilityLabel("Lyric timing in milliseconds")
+                    Button { player.lyricAdvanceMS = min(5000, player.lyricAdvanceMS + 100) } label: {
+                        Image(systemName: "plus.circle").frame(width: 20, height: 24)
+                    }.panelTooltip("Show lyrics 100 ms earlier").accessibilityLabel("Show lyrics 100 ms earlier")
+                    Text(String(format: "%+.0f ms", player.lyricAdvanceMS))
+                        .font(.system(size: 11, design: .monospaced)).frame(width: 64)
+                    Button { player.lyricAdvanceMS = 0 } label: {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 11)).frame(width: 20, height: 24)
+                    }.panelTooltip("Reset audio delay").accessibilityLabel("Reset audio delay")
+                }.frame(height: 32)
+                .transition(.opacity)
             }
-        }.padding(.horizontal, 18).padding(.vertical, 12)
-        .frame(maxWidth: .infinity).frame(height: 88, alignment: .top)
-        .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 16))
+        }.padding(.horizontal, 14).padding(.vertical, 8)
+        .frame(maxWidth: .infinity).frame(height: player.toolsOpen ? 92 : 44, alignment: .top)
+        .background(PanelStyle.surface, in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.10), lineWidth: 0.5))
         .foregroundStyle(.white).buttonStyle(.plain).preferredColorScheme(.dark)
     }
@@ -395,14 +504,7 @@ struct NotchView: View {
                                 Button { player.command("playpause") } label: { Image(systemName: player.playing ? "pause.fill" : "play.fill").font(.system(size: 15)).frame(width: 26, height: 28) }
                                 Button { player.command("next track") } label: { Image(systemName: "forward.end.fill").font(.system(size: 11)).frame(width: 24, height: 28) }
                             }.fixedSize()
-                            Button { player.pinned.toggle() } label: { Image(systemName: player.pinned ? "pin.fill" : "pin").font(.system(size: 12)).frame(width: 24, height: 28) }
-                            Button {
-                                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { player.toolsOpen.toggle() }
-                            } label: {
-                                Image(systemName: "slider.horizontal.3").font(.system(size: 12))
-                                    .foregroundStyle(player.toolsOpen ? Color.green : Color.white.opacity(0.65))
-                                    .frame(width: 24, height: 28)
-                            }.accessibilityLabel("Settings").accessibilityValue(player.toolsOpen ? "Terbuka" : "Tertutup")
+
                         }
                         ThreeLyrics(player: player)
                     }.padding(.horizontal, 30).padding(.vertical, 12).frame(height: player.mainContentHeight)
@@ -410,7 +512,14 @@ struct NotchView: View {
                     .blur(radius: reduceMotion ? 0 : (player.expanded ? 0 : 4))
                     .allowsHitTesting(player.expanded).accessibilityHidden(!player.expanded)
                 }.frame(width: geometry.size.width, height: player.expanded ? player.barHeight + player.mainContentHeight : player.barHeight, alignment: .top)
-                .background(Color.black)
+                .background {
+                    if player.expanded {
+                        LinearGradient(stops: [.init(color: .black, location: 0),
+                                               .init(color: .black, location: 0.16),
+                                               .init(color: PanelStyle.surface, location: 0.7)],
+                                       startPoint: .top, endPoint: .bottom)
+                    } else { Color.black }
+                }
                 .overlay(alignment: .top) {
                     HStack(spacing: 0) {
                         AlbumCover(image: player.cover).frame(width: 20, height: 20).frame(width: 34)
@@ -420,7 +529,7 @@ struct NotchView: View {
                     .opacity(player.expanded ? 0 : 1).allowsHitTesting(false)
                 }.clipShape(NotchSilhouette())
                 .onTapGesture { if !player.expanded { resize(true) } }
-                if player.expanded && player.toolsOpen { ToolsPanel(player: player).padding(.horizontal, 12).transition(.opacity) }
+                if player.expanded { ToolsPanel(player: player).padding(.horizontal, 12).transition(.opacity) }
             }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .top).clipped()
             .foregroundStyle(.white).buttonStyle(.plain).preferredColorScheme(.dark)
             .onChange(of: player.currentLine) { _ in if player.expanded { resize(true) } }
@@ -448,6 +557,7 @@ struct NotchView: View {
         panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1); panel.isOpaque = false; panel.backgroundColor = .clear
         panel.hasShadow = false; panel.hidesOnDeactivate = false
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let hosting = NSHostingView(rootView: NotchView(player: player, resize: { [weak self] in self?.resize($0) }))
         hosting.sizingOptions = []
